@@ -1,6 +1,8 @@
 # History files
 .Rhistory
 .Rapp.history
+# data
+.RData
 
 # Example code in package build process
 *-Ex.R
@@ -11,3 +13,21 @@
 # produced vignettes
 vignettes/*.html
 vignettes/*.pdf
+
+# files specific to this project
+Recommender_systems.Rproj
+
+# API key
+api_key.R
+
+# data
+taste_profile_usercat_120k.txt
+
+# scratch paper
+exercises.R
+get_data.R
+recommenderlab.R
+screen_data.R
+
+# works in progress
+blogpost.Rmd
