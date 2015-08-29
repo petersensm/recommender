@@ -16,6 +16,7 @@ vignettes/*.pdf
 
 # files specific to this project
 Recommender_systems.Rproj
+blogpost.html
 
 # API key
 api_key.R
