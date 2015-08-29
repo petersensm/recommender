@@ -92,7 +92,7 @@ get_profiledata <- function(catalog, recordnumber, ratelimit = 20) {
 
 # easy button for getting previously retrieved user tasteprofile data posted on github
 loadsaveddata <- function(){
-    fileUrl <- "https://github.com/petersensm/recommender/blob/master/tasteprofile600users.csv"
+    fileUrl <- "https://raw.githubusercontent.com/petersensm/recommender/master/tasteprofile600users.csv"
     download.file(fileUrl, destfile = "tasteprofile600users.csv")
     tasteprofile <- read.csv("tasteprofile600users.csv", stringsAsFactors = F)
     tasteprofile
