@@ -1,0 +1,125 @@
+
+```{r setup, include=FALSE, results="hide"}
+if(!("knitr" %in% installed.packages()[,"Package"])) {
+    install.packages(knitr)
+}
+library(knitr)
+```
+
+---
+title: "Recommender exercise"
+output: html_document
+---
+
+## Motivation:   
+Recommender systems drive the suggestions you get for products online: movies, music, books, news, and more. They can be complex --- for example, check out the [Netflix prize](https://en.wikipedia.org/wiki/Netflix_Prize) --- but some of the basic methods are similar to the multivariate statistics I've used in plant community ecology. So I was keen to see how I could apply some of these tools to a new problem.    
+
+## Background:   
+A recommender system starts with three main pieces of data: users, items, and user ratings of items. Think about this data arranged into a ratings matrix, with users as rows and items as columns. Most users have rated some items, but there's likely a lot of empty user-item combinations. The job of the recommender algorithm is to fill in those empty combinations and/or to suggest new items to users. Items that users actually have a high likelihood of liking. There are two broad categories of techniques for identifying these recommendations: content-based and collaborative filtering.    
+* Content-based recommenders suggest new items to users based on the features of the items that the user likes.  They make use of item and user profiles based on an additional piece of data --- item features. For example, for music, these features could be the artist, genre, tempo, instruments, etc of the songs.   
+* Collaborative filtering recommends items that similar users have liked or used, and are based on finding users with similar tastes (in music). For example, two users are similar if they share many of the same songs. You can also flip this around and use the similarity of item ratings to fill in empty cells of the rating matrix.    
+
+For an overview of these methods, I suggest checking out Chapter 9, Recommendation Systems, in Jure Leskovec, Anand Rajaraman, and Jeffrey D. Ullman's [Mining Massive Data Sets](http://www.mmds.org/).   
+
+## Approach and dataset:   
+I started to explore these concepts using the [Million Song Dataset](http://labrosa.ee.columbia.edu/millionsong/), which is a collection of music metadata datasets as well as the basis of a [2012 kaggle competition](https://www.kaggle.com/c/msdchallenge). Among the available datasets, the Taste Profile Subset is of most interest for starting with a simple recommender using collaborative filtering because it contains user data --- playlists and counts of song plays. Still, it's big; fortunately there is a smaller subset available with "just" 120k users that one can extract from the Echo Nest API using catalog keys. This is ideal for getting up and running because the user playlists contain some minimal information about the songs and don't require you to match them with the other song information.   
+
+The user playlist and song play count data could be used to build a basic collaborative filtering recommender in a couple of ways. The simplest approach is to convert play count into a binary preference: 1 = the song is in the playlist, 0 = not in playlist. Then you can calculate similarity between all pairs of users using Jaccard's similarity index, which is calculated as the ratio of the intersection to the union of two sets. Armed with user-user similarity, one can then recommend songs for a given user from the songs in similar user's playlists.  
+
+Although the kaggle competition I mentioned was done in python, I decided to do my programming in R, as I currently find it accessible. In R, there's a package for everything. Lo and behold, a quick search uncovered [recommenderlab](https://cran.r-project.org/web/packages/recommenderlab/index.html), a package for developing and testing recommender systems in R --- specifically collaborative filtering based systems! Playing with the pre-existing package seemed like a logical next step. At this point, my recommender system project morphed into an exercise in learning the recommenderlab package --- which did help me to become more aware of tools for working with matrices in R --- and writing functions to access the taste profile data as well as wrappers for passing the data and extracting recommendations using the functions in recommenderlab.   
+
+## Recommender script:
+This script uses the functions in [functions.R](https://github.com/petersensm/recommender/blob/master/functions.R) to get the taste profile data, clean it, pass in to other functions in recommenderlab, and return recommendations in the context of the user playlists. Although overviews of the functions are provided below, you may find it helpful to follow along with the additional details provided in the [README.md](https://github.com/petersensm/recommender/blob/master/README.R) document as we go along.   
+
+### set up R for running the functions    
+We'll use Hadley Whickam's devtools package to load the functions from [github](https://github.com/petersensm/recommender), put them in a temp file, and source from the temp.   
+```{r sourcefunctions, warning=FALSE, message=FALSE}
+# install and load the devtools package 
+if(!("devtools" %in% installed.packages()[,"Package"])) {
+    install.packages(devtools)
+}
+library(devtools)
+# source our functions from github
+SourceURL <- "https://raw.githubusercontent.com/petersensm/recommender/master/functions.R"
+source_url(SourceURL)
+```
+
+Alternatively, if you actually want to download the file to your working directory:   
+```{r sourcefunctions_option2, eval=FALSE}
+fileUrl <- "https://raw.githubusercontent.com/petersensm/recommender/master/functions.R"
+download.file(fileUrl, destfile = "functions.R")
+source("functions.R")
+```
+
+Now, we can get the rest of the necessary packages.   
+```{r packages, warning=FALSE, message=FALSE}
+check_packages(c("recommenderlab","dplyr","httr","jsonlite"))
+```
+
+### Download and clean up the catalog.   
+This function retrieves the taste profile catalog, saves the catalog in the working directory as "taste_profile_usercat_120k.txt", reads it into R, and retains entries where the catalog number is the correct size.   
+```{r catalog}
+catalog <- get_catalog()
+```
+
+### retrieve user taste profiles for about 600 users.    
+#### route 1: access the Echo Nest API for taste profiles using catalog ids    
+This function retrieves user taste profile data from the Echo Nest API using three arguments: the catalog, a specified number of records to fetch, and the rate limit for calling the API. 
+*WARNING* This step will take 30 minutes with the default settings!    
+
+*Note 1* To do this step, you'll need to [register for an API key](https://developer.echonest.com/account/register) at Echo Nest. Put your API key in a file called "api_key.R" containing the line, apikey <- "your API key here", but with your actual API key, of course.   
+
+*Note 2* Set.seed(1) will give you the same set of users as the saved taste profile data.   
+```{r, tasteprofile_route_1, eval = FALSE}
+set.seed(1)
+tasteprofile <- get_profiledata(catalog, 600, 20)
+```
+
+#### route 2: alternatively, load saved taste profile data for the 600 (really 589) users    
+```{r tasteprofile_route_2}
+tasteprofile <- loadsaveddata()
+```
+
+### Build the recommender and get recommendations    
+The get_recommendations() function funnels the taste profile data into and out of the functions of the recommenderlab package. These recommenderlab functions do the heavy lifting of transforming the dataframe into a binary (presence/absence) matrix, applying a simple recommender system, and generating recommendations. The arguments passed to get_recommendations() include the taste profile dataset, your choice of recommender system method, the percentage of data to be used for "training" the recommender (versus testing or retrieving recommendations) (defaults to a 90:10 split), and the number of recommendations offered to each user in the test data (the default is 5).    
+
+For recommender systems, one can choose either the user-based collaborative filtering method using the Jaccard similarity ("UBCF") or a super simple popular count ("POPULAR"), which is an interesting method for comparison. The final output is a list of lists, one  for each user in the test dataset, containing their id number, playlist (as a data frame), and top recommendations (also a data frame).   
+
+*Note* get_recommendations() will give recomendations for a different set of users each time it is called due to the psuedo-random sampling in the internal split_data() function. If you want to get recommendations for the same users (for comparison across methods), set the same seed number immediately before each function call.   
+```{r recommendations}
+set.seed(1)
+popular_recs <- get_recommendations(tasteprofile, "POPULAR")
+set.seed(1)
+ubcf_recs <- get_recommendations(tasteprofile, "UBCF")
+```
+
+### Explore provided recommedations    
+If you followed along with the script and functions, you now have a set of lists for each recommender method. If you used the data as is, each is a list of 59, one for each user in the test dataset, which is 10% of our taste profile dataset.   
+
+We can extract the full output (user id, playlist, and recommendations) for each individual user from the list. For example, the results for first user in the test data set:    
+```{r first_user}
+ubcf_recs[1]
+```
+
+The nice thing about using the same list of users is that you can now look at the recommendations provided to the same user by the two different methods and see if they make any sense. For example, let's look at the output for the 50th user in the test dataset. We can access select portions of output by extracting nested elements from the list. First we'll grab their playlist, then the recommendations from the user-based collaborative filtering algorithm, and lastly, the popular recommendations.   
+```{r fiftieth_user}
+ubcf_recs[[50]][[2]] # the 50th user's playlist
+ubcf_recs[[50]][[3]] # the 50th user's user-based collaborative filtering recommendations
+popular_recs[[50]][[3]] # the 50th user's popular recommendations
+```
+
+The user has some songs from Slipknot, Hole, and Depeche Mode --- a little eclectic --- and the simple user-based collaborative filtering algorithm recommended songs by Coldplay, Taylor Swift and Jack Johnson. These don't seem like particularly great matches, so maybe we shouldn't run this to production just yet! It's also interesting to note that the popular method recommends the same Jack Johnson song....so maybe all the nearest neighbors had it just because it was popular. On a side note, it would be nice to see what the playlists of the 5 nearest neighbors really looked like, but we'll leave that for another day.   
+
+## How good are these recommenders, really?
+Although it's fun to look at the output and qualitatively compare recommendations, the recommenderlab package provides quantitative methods for both evaluating and comparing recommender systems. To use these, one must step outside my get_recommendations() function pipeline, but you could still use the internal data preparation functions to process the data beforehand. Also, splitting the data is internal to recommenderlab's evaluation functions because having a test dataset in which some values can be removed is essential for calculating measures of error. See the [recommenderlab vignette](https://cran.r-project.org/web/packages/recommenderlab/vignettes/recommenderlab.pdf) for more details. (For what we did above, the distinction between a training and test dataset is not as important.)      
+
+## Extensions
+We've explored just one pathway for user-based collaborative filtering (converting play count to a binary item rating and calculating Jaccard similarity among users), but this same dataset could be used to explore several other versions of recommender systems. Here are the next logical steps we could pursue.   
+
+1. Try using the item ratings. This next simplest approach would be to use the song play counts as rating values and use a similarity index that preserves rating information, such as cosine similarity. Two additional challenges are scaling and normalization of rating data. User ratings often have to be standardized before calculating similarity and, likewise, recommendations have to be weighted by average user rating. This is because one user might rate everything highly while another might rate everything low. Also, for the taste profile subset, play counts would have to be re-scaled because most songs were played only once, but some were played tens and hundreds of times!   
+2. Apply content-based collaborative filtering, which uses item similarity rather than user similarity to predict  user rating of an item.    
+3. Use content-based methods based on item and user profiles. This would involve tapping into other datasets in the million song database to build feature profiles for songs. Note that we already naturally framed the problem in terms of features when we examined the output, noting the artist and genre of the songs.    
+4. Ultimately, most successful recommenders merge several techniques. So we could use some blend of both major approaches in addition to others. For example, even if two users like hip hop, they may still have few songs in common, but they may share songs from similar artists or genres. Clustering songs by artist or genre and  finding users that share songs in similar clusters - would be a way to identify more similar users.    
+
+## Back to reality    
+This was just a brief foray. To learn more about the Echo Nest taste profile data and music recommendations check out this short and sweet article about the marriage of [data and music](http://www.billboard.com/biz/articles/news/digital-and-mobile/5944931/predicting-what-you-want-to-hear-music-and-data-get-it). Also, people are building all sorts of fun things using the [Echo Nest and Spotify APIs](http://static.echonest.com/enspex/). Check it out!    
