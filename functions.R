@@ -13,7 +13,25 @@ check_packages <- function(packagelist) {
 }
 
 # get the catalog
-get_catalog <- function(){
+# this is a verision ripped from source_url() in the devtools package 
+# I would not ordinarily do this, but knitr and my typical way of downloading files are not compatable
+# bonus (maybe) this puts the file in temp and removes it when done
+# since you won't be running knitr, feel free to use the version below!
+get_catalog <-function() {
+    temp_file <- tempfile()
+    on.exit(unlink(temp_file))
+    fileUrl <- "http://labrosa.ee.columbia.edu/millionsong/sites/default/files/tasteprofile/taste_profile_usercat_120k.txt"
+    request <- httr::GET(fileUrl)
+    httr::stop_for_status(request)
+    writeBin(httr::content(request, type = "raw"), temp_file)
+    catalog <- read.table(temp_file,  
+                      comment.char = "", colClasses = "character", stringsAsFactors = F,
+                      fill = T, quote = NULL, sep = ">", strip.white = T)
+    goodcatalog <- subset(catalog, nchar(V2) == 18)
+    goodcatalog
+}
+
+get_catalogV1 <- function(){
     fileUrl <- "http://labrosa.ee.columbia.edu/millionsong/sites/default/files/tasteprofile/taste_profile_usercat_120k.txt"
     download.file(fileUrl, destfile = "taste_profile_usercat_120k.txt")
     catalog <- read.table("taste_profile_usercat_120k.txt",  
@@ -91,7 +109,21 @@ get_profiledata <- function(catalog, recordnumber, ratelimit = 20) {
 }
 
 # easy button for getting previously retrieved user tasteprofile data posted on github
-loadsaveddata <- function(){
+# again, this version is based on source_url() in the devtools package 
+# bonus (maybe) this puts the file in temp and removes it when done
+# since you won't be running knitr, feel free to use the version below!
+loadsaveddata <-function() {
+    temp_file <- tempfile()
+    on.exit(unlink(temp_file))
+    fileUrl <- "https://raw.githubusercontent.com/petersensm/recommender/master/tasteprofile600users.csv"
+    request <- httr::GET(fileUrl)
+    httr::stop_for_status(request)
+    writeBin(httr::content(request, type = "raw"), temp_file)
+    tasteprofile <- read.csv(temp_file, stringsAsFactors = F)
+    tasteprofile
+}
+
+loadsaveddataV1 <- function(){
     fileUrl <- "https://raw.githubusercontent.com/petersensm/recommender/master/tasteprofile600users.csv"
     download.file(fileUrl, destfile = "tasteprofile600users.csv")
     tasteprofile <- read.csv("tasteprofile600users.csv", stringsAsFactors = F)
